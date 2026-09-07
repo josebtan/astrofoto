@@ -16,10 +16,13 @@ Los módulos pendientes tienen un archivo `*Module.kt` con un `TODO` como punto 
 
 1. Cloná el repo.
 2. Abrilo con Android Studio (versión Koala o más nueva). Android Studio
-   genera automáticamente el `gradle-wrapper.jar` que falta en este esqueleto
-   (no se pudo generar desde este entorno por restricciones de red).
+   genera automáticamente el `gradlew`/`gradle-wrapper.jar` que faltan en
+   este esqueleto (no se pudieron generar desde este entorno por
+   restricciones de red).
    - Alternativa manual: con Gradle instalado localmente, correr
      `gradle wrapper --gradle-version 8.7` en la raíz del proyecto.
+   - El CI de GitHub Actions no depende del wrapper: usa
+     `gradle/actions/setup-gradle` para instalar Gradle 8.7 directamente.
 3. Sincronizá Gradle y corré la app en un emulador o dispositivo (minSdk 26).
 
 ## CI en GitHub Actions
