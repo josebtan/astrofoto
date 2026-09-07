@@ -30,10 +30,18 @@ jobs:
           gradle-version: '8.7'
 
       - name: Run unit tests
-        run: gradle test
+        run: |
+          gradle test --stacktrace > gradle_test.log 2>&1 || {
+            tail -n 150 gradle_test.log | while IFS= read -r line; do echo "::error::$line"; done
+            exit 1
+          }
 
       - name: Build debug APK
-        run: gradle assembleDebug
+        run: |
+          gradle assembleDebug --stacktrace > gradle_build.log 2>&1 || {
+            tail -n 150 gradle_build.log | while IFS= read -r line; do echo "::error::$line"; done
+            exit 1
+          }
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
