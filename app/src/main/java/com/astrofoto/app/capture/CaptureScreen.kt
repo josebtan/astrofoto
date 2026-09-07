@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -60,7 +61,7 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalCamera2Interop::class)
+@OptIn(ExperimentalCamera2Interop::class, ExperimentalMaterial3Api::class)
 @Composable
 fun CaptureScreen() {
     val context = LocalContext.current
@@ -276,7 +277,7 @@ fun CaptureScreen() {
 private fun SettingsCard(
     title: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
-    content: @Composable ColumnScopeContent
+    content: ColumnScopeContent
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
