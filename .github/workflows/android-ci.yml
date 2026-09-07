@@ -32,14 +32,14 @@ jobs:
       - name: Run unit tests
         run: |
           gradle test --stacktrace > gradle_test.log 2>&1 || {
-            tail -n 150 gradle_test.log | while IFS= read -r line; do echo "::error::$line"; done
+            grep -n -E "error:|e: |FAILED|What went wrong|Caused by" gradle_test.log | head -n 80 | while IFS= read -r line; do echo "::error::$line"; done
             exit 1
           }
 
       - name: Build debug APK
         run: |
           gradle assembleDebug --stacktrace > gradle_build.log 2>&1 || {
-            tail -n 150 gradle_build.log | while IFS= read -r line; do echo "::error::$line"; done
+            grep -n -E "error:|e: |FAILED|What went wrong|Caused by" gradle_build.log | head -n 80 | while IFS= read -r line; do echo "::error::$line"; done
             exit 1
           }
 
