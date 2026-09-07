@@ -6,11 +6,11 @@ sin funcionalidad real — solo la estructura para ir sumando módulos.
 
 ## Módulos previstos
 
-- `capture/` — control manual de cámara (ISO, exposición, intervalómetro) vía CameraX.
-- `stacking/` — apilado y alineación de imágenes para reducir ruido.
-- `skyguide/` — guía del cielo nocturno (posición de objetos según ubicación/hora).
+- `capture/` ✅ — control manual de cámara (ISO, exposición, foco, intervalómetro) vía CameraX + Camera2Interop. Es la pantalla principal actual.
+- `stacking/` — apilado y alineación de imágenes para reducir ruido. Pendiente.
+- `skyguide/` — guía del cielo nocturno (posición de objetos según ubicación/hora). Pendiente.
 
-Cada uno tiene un archivo `*Module.kt` con un `TODO` como punto de partida.
+Los módulos pendientes tienen un archivo `*Module.kt` con un `TODO` como punto de partida.
 
 ## Cómo abrirlo
 

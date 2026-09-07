@@ -3,32 +3,23 @@ package com.astrofoto.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Box
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.astrofoto.app.capture.CaptureScreen
 import com.astrofoto.app.ui.theme.AstrofotoTheme
 
 class MainActivity : ComponentActivity() {
+    @OptIn(ExperimentalCamera2Interop::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             AstrofotoTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    HomePlaceholder()
+                    CaptureScreen()
                 }
             }
         }
-    }
-}
-
-@Composable
-fun HomePlaceholder() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("Astrofoto — proyecto base listo 🌌")
     }
 }
