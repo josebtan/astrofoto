@@ -211,7 +211,11 @@ class CaptureController(private val context: Context) {
         }
     }
 
-    fun capturePhoto(onSaved: (Uri) -> Unit, onError: (Exception) -> Unit) {
+    fun capturePhoto(
+        frameType: FrameType = FrameType.LIGHT,
+        onSaved: (Uri) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
         val device = cameraDevice
         val session = captureSession
         val reader = rawImageReader
@@ -236,7 +240,7 @@ class CaptureController(private val context: Context) {
             reader.setOnImageAvailableListener({ r ->
                 val image = r.acquireLatestImage() ?: return@setOnImageAvailableListener
                 pendingImage = image
-                maybeWriteDng(onSaved, onError)
+                maybeWriteDng(frameType, onSaved, onError)
             }, backgroundHandler)
 
             session.capture(
@@ -248,7 +252,7 @@ class CaptureController(private val context: Context) {
                         result: TotalCaptureResult
                     ) {
                         pendingResult = result
-                        maybeWriteDng(onSaved, onError)
+                        maybeWriteDng(frameType, onSaved, onError)
                     }
 
                     override fun onCaptureFailed(
@@ -266,7 +270,7 @@ class CaptureController(private val context: Context) {
         }
     }
 
-    private fun maybeWriteDng(onSaved: (Uri) -> Unit, onError: (Exception) -> Unit) {
+    private fun maybeWriteDng(frameType: FrameType, onSaved: (Uri) -> Unit, onError: (Exception) -> Unit) {
         val image = pendingImage ?: return
         val result = pendingResult ?: return
         val chars = characteristics ?: return
@@ -276,10 +280,10 @@ class CaptureController(private val context: Context) {
             val name = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
 
             val contentValues = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, "ASTRO_$name.dng")
+                put(MediaStore.MediaColumns.DISPLAY_NAME, "${frameType.prefix}_$name.dng")
                 put(MediaStore.MediaColumns.MIME_TYPE, "image/x-adobe-dng")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Astrofoto/RAW")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Astrofoto/${frameType.folder}")
                 }
             }
 
@@ -342,3 +346,11 @@ val ShutterSpeedsNanos: List<Pair<String, Long>> = listOf(
 
 /** ISO típicos p/ sensores de smartphone. */
 val IsoValues: List<Int> = listOf(50, 100, 200, 400, 800, 1600, 3200, 6400)
+
+/** Tipo de frame capturado — determina subcarpeta y prefijo del archivo. */
+enum class FrameType(val folder: String, val prefix: String) {
+    LIGHT("RAW", "ASTRO"),
+    DARK("RAW/DARK", "DARK"),
+    FLAT("RAW/FLAT", "FLAT"),
+    BIAS("RAW/BIAS", "BIAS")
+}

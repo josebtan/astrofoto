@@ -2,12 +2,10 @@ package com.astrofoto.app.capture
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.view.TextureView
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import android.view.TextureView
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,22 +17,25 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.filled.Collections
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -59,9 +60,16 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+private enum class SettingsTab(val label: String) {
+    EXPOSURE("Exposición"),
+    FOCUS("Enfoque"),
+    INTERVAL("Intervalómetro"),
+    CALIBRATION("Calibración")
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CaptureScreen() {
+fun CaptureScreen(onOpenGallery: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -81,20 +89,17 @@ fun CaptureScreen() {
 
     if (!hasCameraPermission) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                "Se necesita permiso de cámara para continuar.",
-                modifier = Modifier.padding(24.dp)
-            )
+            Text("Se necesita permiso de cámara para continuar.", modifier = Modifier.padding(24.dp))
         }
         return
     }
 
     val controller = remember { CaptureController(context) }
     var cameraReady by remember { mutableStateOf(false) }
+    var rawSupported by remember { mutableStateOf(true) }
 
     var isoIndex by remember { mutableIntStateOf(2) } // 200 ISO por defecto
     var shutterIndex by remember { mutableIntStateOf(12) } // 1" por defecto
-    var rawSupported by remember { mutableStateOf(true) }
 
     var manualFocusEnabled by remember { mutableStateOf(false) }
     var focusDistance by remember { mutableFloatStateOf(0f) } // 0 = infinito
@@ -103,21 +108,22 @@ fun CaptureScreen() {
     var intervalSeconds by remember { mutableIntStateOf(5) }
     var isIntervalRunning by remember { mutableStateOf(false) }
 
+    var selectedTab by remember { mutableIntStateOf(0) }
+
     val iso = IsoValues[isoIndex]
     val (shutterLabel, shutterNanos) = ShutterSpeedsNanos[shutterIndex]
     val effectiveFocus = if (manualFocusEnabled) focusDistance else 0f
 
     LaunchedEffect(cameraReady, iso, shutterNanos, effectiveFocus) {
-        if (cameraReady) {
-            controller.applyManualSettings(iso, shutterNanos, effectiveFocus)
-        }
+        if (cameraReady) controller.applyManualSettings(iso, shutterNanos, effectiveFocus)
     }
 
     DisposableEffectStop(controller)
 
-    fun takeShot() {
+    fun takeShot(frameType: FrameType = FrameType.LIGHT, label: String = "RAW guardado") {
         controller.capturePhoto(
-            onSaved = { Toast.makeText(context, "RAW guardado", Toast.LENGTH_SHORT).show() },
+            frameType = frameType,
+            onSaved = { Toast.makeText(context, label, Toast.LENGTH_SHORT).show() },
             onError = { Toast.makeText(context, "Error: ${it.message}", Toast.LENGTH_SHORT).show() }
         )
     }
@@ -126,17 +132,18 @@ fun CaptureScreen() {
         topBar = {
             TopAppBar(
                 title = { Text("Captura manual", fontWeight = FontWeight.SemiBold) },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                actions = {
+                    IconButton(onClick = onOpenGallery) {
+                        Icon(Icons.Default.Collections, contentDescription = "Galería")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
         bottomBar = {
             Surface(shadowElevation = 8.dp) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
                     horizontalArrangement = Arrangement.Center
                 ) {
                     ShutterButton(
@@ -162,17 +169,11 @@ fun CaptureScreen() {
             }
         }
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-        ) {
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(3f / 4f)
-                    .clip(MaterialTheme.shapes.medium)
+                    .aspectRatio(4f / 3f)
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 AndroidView(
@@ -190,187 +191,232 @@ fun CaptureScreen() {
                             )
                         }
                     },
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(MaterialTheme.shapes.medium)
+                    modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.medium)
                 )
             }
 
             if (cameraReady && !rawSupported) {
                 Surface(
                     color = MaterialTheme.colorScheme.errorContainer,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                 ) {
                     Text(
-                        "Esta cámara no soporta captura RAW (DNG). No vas a poder capturar fotos en este dispositivo.",
+                        "Esta cámara no soporta captura RAW (DNG). No vas a poder capturar en este dispositivo.",
                         modifier = Modifier.padding(12.dp),
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
             }
 
+            ScrollableTabRow(selectedTabIndex = selectedTab, edgePadding = 16.dp) {
+                SettingsTab.entries.forEachIndexed { index, tab ->
+                    Tab(
+                        selected = selectedTab == index,
+                        onClick = { selectedTab = index },
+                        text = { Text(tab.label) }
+                    )
+                }
+            }
+
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                SettingsCard(title = "Exposición") {
-                    LabeledSlider(
-                        label = "ISO",
-                        valueText = "$iso",
-                        value = isoIndex.toFloat(),
-                        onValueChange = { isoIndex = it.toInt() },
-                        valueRange = 0f..(IsoValues.size - 1).toFloat(),
-                        steps = IsoValues.size - 2
+                when (SettingsTab.entries[selectedTab]) {
+                    SettingsTab.EXPOSURE -> ExposureTab(
+                        iso = iso,
+                        isoIndex = isoIndex,
+                        onIsoIndexChange = { isoIndex = it },
+                        shutterLabel = shutterLabel,
+                        shutterIndex = shutterIndex,
+                        onShutterIndexChange = { shutterIndex = it }
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    LabeledSlider(
-                        label = "Velocidad",
-                        valueText = shutterLabel,
-                        value = shutterIndex.toFloat(),
-                        onValueChange = { shutterIndex = it.toInt() },
-                        valueRange = 0f..(ShutterSpeedsNanos.size - 1).toFloat(),
-                        steps = ShutterSpeedsNanos.size - 2
-                    )
-                }
 
-                SettingsCard(title = "Enfoque") {
-                    ToggleRow(
-                        label = if (manualFocusEnabled) "Manual" else "Automático (infinito)",
-                        checked = manualFocusEnabled,
-                        onCheckedChange = { manualFocusEnabled = it }
+                    SettingsTab.FOCUS -> FocusTab(
+                        manualEnabled = manualFocusEnabled,
+                        onManualEnabledChange = { manualFocusEnabled = it },
+                        focusDistance = focusDistance,
+                        onFocusDistanceChange = { focusDistance = it }
                     )
-                    AnimatedVisibility(visible = manualFocusEnabled) {
-                        Column {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            LabeledSlider(
-                                label = "Distancia",
-                                valueText = "%.1f D".format(focusDistance),
-                                value = focusDistance,
-                                onValueChange = { focusDistance = it },
-                                valueRange = 0f..10f
-                            )
-                        }
-                    }
-                }
 
-                SettingsCard(title = "Intervalómetro", icon = Icons.Default.Timer) {
-                    ToggleRow(
-                        label = if (intervalEnabled) "Activado" else "Desactivado",
-                        checked = intervalEnabled,
-                        onCheckedChange = {
+                    SettingsTab.INTERVAL -> IntervalTab(
+                        enabled = intervalEnabled,
+                        onEnabledChange = {
                             intervalEnabled = it
                             if (!it) isIntervalRunning = false
-                        }
+                        },
+                        seconds = intervalSeconds,
+                        onSecondsChange = { intervalSeconds = it }
                     )
-                    AnimatedVisibility(visible = intervalEnabled) {
-                        Column {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            LabeledSlider(
-                                label = "Cada",
-                                valueText = "$intervalSeconds s",
-                                value = intervalSeconds.toFloat(),
-                                onValueChange = { intervalSeconds = it.toInt() },
-                                valueRange = 1f..60f,
-                                steps = 58
-                            )
-                        }
-                    }
-                }
 
-                // Espacio extra para que la última tarjeta no quede pegada a la barra inferior
-                Spacer(modifier = Modifier.height(8.dp))
+                    SettingsTab.CALIBRATION -> CalibrationTab(
+                        onCaptureDark = { takeShot(FrameType.DARK, "Dark frame guardado") },
+                        onCaptureFlat = { takeShot(FrameType.FLAT, "Flat frame guardado") },
+                        onCaptureBias = { takeShot(FrameType.BIAS, "Bias frame guardado") }
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun SettingsCard(
-    title: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
-    content: ColumnScopeContent
+private fun BigValue(label: String, value: String) {
+    Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text(value, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+}
+
+@Composable
+private fun ExposureTab(
+    iso: Int,
+    isoIndex: Int,
+    onIsoIndexChange: (Int) -> Unit,
+    shutterLabel: String,
+    shutterIndex: Int,
+    onShutterIndexChange: (Int) -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                icon?.let {
-                    Icon(it, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                }
-                Text(
-                    title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-            content()
-        }
-    }
+    BigValue("ISO", "$iso")
+    Slider(
+        value = isoIndex.toFloat(),
+        onValueChange = { onIsoIndexChange(it.toInt()) },
+        valueRange = 0f..(IsoValues.size - 1).toFloat(),
+        steps = IsoValues.size - 2
+    )
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    BigValue("Velocidad de obturación", shutterLabel)
+    Slider(
+        value = shutterIndex.toFloat(),
+        onValueChange = { onShutterIndexChange(it.toInt()) },
+        valueRange = 0f..(ShutterSpeedsNanos.size - 1).toFloat(),
+        steps = ShutterSpeedsNanos.size - 2
+    )
 }
 
-private typealias ColumnScopeContent = @Composable () -> Unit
-
 @Composable
-private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun FocusTab(
+    manualEnabled: Boolean,
+    onManualEnabledChange: (Boolean) -> Unit,
+    focusDistance: Float,
+    onFocusDistanceChange: (Float) -> Unit
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, style = MaterialTheme.typography.bodyMedium)
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        BigValue("Enfoque", if (manualEnabled) "Manual" else "Automático (infinito)")
+        Switch(checked = manualEnabled, onCheckedChange = onManualEnabledChange)
+    }
+
+    if (manualEnabled) {
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            "Distancia: ${"%.1f".format(focusDistance)} D",
+            style = MaterialTheme.typography.titleMedium
+        )
+        Slider(value = focusDistance, onValueChange = onFocusDistanceChange, valueRange = 0f..10f)
+    } else {
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            "En infinito, ideal para estrellas y objetos del cielo profundo.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
 @Composable
-private fun LabeledSlider(
-    label: String,
-    valueText: String,
-    value: Float,
-    onValueChange: (Float) -> Unit,
-    valueRange: ClosedFloatingPointRange<Float>,
-    steps: Int = 0
+private fun IntervalTab(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    seconds: Int,
+    onSecondsChange: (Int) -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, style = MaterialTheme.typography.bodyMedium)
-        Text(valueText, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+        BigValue("Intervalómetro", if (enabled) "Activado" else "Desactivado")
+        Switch(checked = enabled, onCheckedChange = onEnabledChange)
     }
-    Slider(
-        value = value,
-        onValueChange = onValueChange,
-        valueRange = valueRange,
-        steps = steps
+
+    if (enabled) {
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Cada $seconds s", style = MaterialTheme.typography.titleMedium)
+        Slider(
+            value = seconds.toFloat(),
+            onValueChange = { onSecondsChange(it.toInt()) },
+            valueRange = 1f..60f,
+            steps = 58
+        )
+        Text(
+            "El botón de captura pasa a Iniciar/Detener secuencia.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun CalibrationTab(
+    onCaptureDark: () -> Unit,
+    onCaptureFlat: () -> Unit,
+    onCaptureBias: () -> Unit
+) {
+    Text(
+        "Frames de calibración para reducir ruido y defectos en el procesamiento posterior.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
+    CalibrationCaptureRow(
+        title = "Dark",
+        description = "Tapá el lente. Usa el mismo ISO y exposición que tus lights.",
+        onClick = onCaptureDark
+    )
+    CalibrationCaptureRow(
+        title = "Flat",
+        description = "Apuntá a una superficie uniforme (cielo al amanecer o panel de luz).",
+        onClick = onCaptureFlat
+    )
+    CalibrationCaptureRow(
+        title = "Bias",
+        description = "Tapá el lente con la exposición más corta posible.",
+        onClick = onCaptureBias
     )
 }
 
 @Composable
-private fun ShutterButton(isIntervalMode: Boolean, isRunning: Boolean, onClick: () -> Unit) {
-    val color = if (isIntervalMode && isRunning) {
-        MaterialTheme.colorScheme.error
-    } else {
-        MaterialTheme.colorScheme.primary
+private fun CalibrationCaptureRow(title: String, description: String, onClick: () -> Unit) {
+    Column {
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(modifier = Modifier.height(6.dp))
+        OutlinedButton(onClick = onClick, colors = ButtonDefaults.outlinedButtonColors()) {
+            Text("Capturar $title")
+        }
     }
+}
+
+@Composable
+private fun ShutterButton(isIntervalMode: Boolean, isRunning: Boolean, onClick: () -> Unit) {
+    val color = if (isIntervalMode && isRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
-            modifier = Modifier
-                .size(72.dp)
-                .clip(CircleShape)
-                .background(color)
-                .then(Modifier),
+            modifier = Modifier.size(72.dp).clip(CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            androidx.compose.material3.IconButton(onClick = onClick, modifier = Modifier.size(72.dp)) {
+            IconButton(
+                onClick = onClick,
+                modifier = Modifier.size(72.dp),
+                colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = color)
+            ) {
                 Icon(
                     imageVector = Icons.Default.CameraAlt,
                     contentDescription = "Capturar",
