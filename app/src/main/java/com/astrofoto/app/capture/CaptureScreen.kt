@@ -5,8 +5,7 @@ import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.camera2.interop.ExperimentalCamera2Interop
-import androidx.camera.view.PreviewView
+import android.view.TextureView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -53,7 +52,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -61,11 +59,10 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalCamera2Interop::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CaptureScreen() {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
 
     var hasCameraPermission by remember {
@@ -97,6 +94,7 @@ fun CaptureScreen() {
 
     var isoIndex by remember { mutableIntStateOf(2) } // 200 ISO por defecto
     var shutterIndex by remember { mutableIntStateOf(12) } // 1" por defecto
+    var rawSupported by remember { mutableStateOf(true) }
 
     var manualFocusEnabled by remember { mutableStateOf(false) }
     var focusDistance by remember { mutableFloatStateOf(0f) } // 0 = infinito
@@ -119,7 +117,7 @@ fun CaptureScreen() {
 
     fun takeShot() {
         controller.capturePhoto(
-            onSaved = { Toast.makeText(context, "Foto guardada", Toast.LENGTH_SHORT).show() },
+            onSaved = { Toast.makeText(context, "RAW guardado", Toast.LENGTH_SHORT).show() },
             onError = { Toast.makeText(context, "Error: ${it.message}", Toast.LENGTH_SHORT).show() }
         )
     }
@@ -179,11 +177,13 @@ fun CaptureScreen() {
             ) {
                 AndroidView(
                     factory = { ctx ->
-                        PreviewView(ctx).also { previewView ->
+                        TextureView(ctx).also { textureView ->
                             controller.startCamera(
-                                lifecycleOwner = lifecycleOwner,
-                                previewView = previewView,
-                                onReady = { cameraReady = true },
+                                textureView = textureView,
+                                onReady = {
+                                    cameraReady = true
+                                    rawSupported = controller.isRawSupported
+                                },
                                 onError = {
                                     Toast.makeText(context, "Error al iniciar cámara: ${it.message}", Toast.LENGTH_LONG).show()
                                 }
@@ -194,6 +194,21 @@ fun CaptureScreen() {
                         .fillMaxSize()
                         .clip(MaterialTheme.shapes.medium)
                 )
+            }
+
+            if (cameraReady && !rawSupported) {
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                ) {
+                    Text(
+                        "Esta cámara no soporta captura RAW (DNG). No vas a poder capturar fotos en este dispositivo.",
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
 
             Column(
@@ -376,7 +391,6 @@ private fun ShutterButton(isIntervalMode: Boolean, isRunning: Boolean, onClick: 
     }
 }
 
-@OptIn(ExperimentalCamera2Interop::class)
 @Composable
 private fun DisposableEffectStop(controller: CaptureController) {
     androidx.compose.runtime.DisposableEffect(controller) {
