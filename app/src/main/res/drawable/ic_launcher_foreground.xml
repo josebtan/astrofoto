@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Luna -->
+    <path
+        android:fillColor="#F5F0E6"
+        android:pathData="M54,30 A24,24 0 1,0 54,78 A18,20 0 1,1 54,30 Z" />
+    <!-- Estrella -->
+    <path
+        android:fillColor="#F5F0E6"
+        android:pathData="M78,58 L80.2,64.8 L87,67 L80.2,69.2 L78,76 L75.8,69.2 L69,67 L75.8,64.8 Z" />
+</vector>
