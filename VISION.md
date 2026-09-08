@@ -75,6 +75,16 @@ herramientas de análisis y mejora de imagen.
 - [x] UI en tabs (Exposición/Enfoque/Intervalómetro/Calibración).
 - [x] Calibración: captura N frames + promedio píxel a píxel → master DNG
       (dark/flat/bias). El promedio corre en la propia app, sin libs externas.
+- [x] Apilado (stacking) básico: promedia N lights consecutivas, sin
+      alineación de estrellas todavía — sirve para tomas cortas con poco
+      barrido. La alineación real (plate solving / registration) queda
+      pendiente, es lo que permitiría apilar exposiciones largas con rotación
+      de campo visible.
+- [x] Thumbnail embebido en cada DNG (se toma del preview en vivo al
+      disparar) — antes el DNG no tenía preview visible, por eso la galería
+      no mostraba nada.
+- [x] Galería: tocar una foto abre vista completa + "Abrir con" (intent
+      externo, útil si el usuario tiene una app que sepa render DNG).
 - [ ] Aplicar la calibración a los lights `(Light-Dark)/(Flat-Bias)` —
       pendiente, es el corazón del módulo de reducción de ruido.
 - [ ] Intervalómetro adaptado a RAW (pendiente de revalidar tras el cambio).

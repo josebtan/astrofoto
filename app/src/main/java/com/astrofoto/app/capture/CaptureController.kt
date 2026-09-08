@@ -3,6 +3,7 @@ package com.astrofoto.app.capture
 import android.annotation.SuppressLint
 import android.content.ContentValues
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.ImageFormat
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCaptureSession
@@ -49,6 +50,7 @@ class CaptureController(private val context: Context) {
     private var captureSession: CameraCaptureSession? = null
     private var rawImageReader: ImageReader? = null
     private var previewSurface: Surface? = null
+    private var previewTextureView: TextureView? = null
     private var repeatingBuilder: CaptureRequest.Builder? = null
 
     private var backgroundThread: HandlerThread? = null
@@ -61,6 +63,25 @@ class CaptureController(private val context: Context) {
 
     var isRawSupported: Boolean = false
         private set
+
+    /** Bitmap del preview en vivo al momento de disparar, usado como thumbnail embebido del DNG. */
+    private fun capturePreviewBitmap(maxDimension: Int = 1024): Bitmap? {
+        return try {
+            val source = previewTextureView?.bitmap ?: return null
+            val w = source.width
+            val h = source.height
+            if (w <= 0 || h <= 0) return null
+            val scale = maxDimension.toFloat() / maxOf(w, h)
+            if (scale < 1f) {
+                Bitmap.createScaledBitmap(source, (w * scale).toInt(), (h * scale).toInt(), true)
+            } else {
+                source
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "No se pudo generar el thumbnail del preview", e)
+            null
+        }
+    }
 
     private fun startBackgroundThread() {
         val thread = HandlerThread("CaptureBackground").also { it.start() }
@@ -82,6 +103,7 @@ class CaptureController(private val context: Context) {
     @SuppressLint("MissingPermission")
     fun startCamera(textureView: TextureView, onReady: () -> Unit, onError: (Exception) -> Unit) {
         startBackgroundThread()
+        previewTextureView = textureView
 
         fun openWithSurface(surface: Surface) {
             try {
@@ -281,6 +303,13 @@ class CaptureController(private val context: Context) {
 
         try {
             val dngCreator = DngCreator(chars, result)
+            capturePreviewBitmap()?.let { thumb ->
+                try {
+                    dngCreator.setThumbnail(thumb)
+                } catch (e: Exception) {
+                    Log.e(TAG, "No se pudo embeber thumbnail en DNG", e)
+                }
+            }
             val name = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
 
             val contentValues = ContentValues().apply {
@@ -456,6 +485,13 @@ class CaptureController(private val context: Context) {
 
         resolver.openOutputStream(uri)?.use { out ->
             DngCreator(chars, result).use { dngCreator ->
+                capturePreviewBitmap()?.let { thumb ->
+                    try {
+                        dngCreator.setThumbnail(thumb)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "No se pudo embeber thumbnail en DNG master", e)
+                    }
+                }
                 dngCreator.writeByteBuffer(out, Size(width, height), packed, 0)
             }
         } ?: throw IllegalStateException("No se pudo abrir el archivo de salida")
@@ -509,5 +545,6 @@ enum class FrameType(val folder: String, val prefix: String) {
     LIGHT("RAW", "ASTRO"),
     DARK("RAW/DARK", "DARK"),
     FLAT("RAW/FLAT", "FLAT"),
-    BIAS("RAW/BIAS", "BIAS")
+    BIAS("RAW/BIAS", "BIAS"),
+    STACK("RAW/STACK", "STACK")
 }

@@ -1,12 +1,16 @@
 package com.astrofoto.app.gallery
 
+import android.content.ActivityNotFoundException
 import android.content.ContentUris
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.widget.Toast
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
@@ -17,13 +21,16 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.exifinterface.media.ExifInterface
@@ -80,14 +88,37 @@ private suspend fun loadThumbnail(context: Context, uri: Uri): Bitmap? = withCon
     }
 }
 
+private fun openWithExternalApp(context: Context, item: GalleryItem) {
+    try {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(item.uri, "image/x-adobe-dng")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, "Abrir con"))
+    } catch (e: ActivityNotFoundException) {
+        Toast.makeText(context, "No hay ninguna app instalada que pueda abrir DNG", Toast.LENGTH_SHORT).show()
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GalleryScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     var items by remember { mutableStateOf(listOf<GalleryItem>()) }
+    var selected by remember { mutableStateOf<GalleryItem?>(null) }
 
     LaunchedEffect(Unit) {
         items = withContext(Dispatchers.IO) { queryAstrofotoImages(context) }
+    }
+
+    val current = selected
+    if (current != null) {
+        PhotoDetailScreen(
+            item = current,
+            onBack = { selected = null },
+            onOpenExternal = { openWithExternalApp(context, current) }
+        )
+        return
     }
 
     Scaffold(
@@ -115,14 +146,16 @@ fun GalleryScreen(onBack: () -> Unit) {
                 modifier = Modifier.fillMaxSize().padding(innerPadding),
                 contentPadding = PaddingValues(4.dp)
             ) {
-                items(items) { item -> GalleryThumbnail(item) }
+                items(items) { item ->
+                    GalleryThumbnail(item = item, onClick = { selected = item })
+                }
             }
         }
     }
 }
 
 @Composable
-private fun GalleryThumbnail(item: GalleryItem) {
+private fun GalleryThumbnail(item: GalleryItem, onClick: () -> Unit) {
     val context = LocalContext.current
     var bitmap by remember(item.uri) { mutableStateOf<Bitmap?>(null) }
 
@@ -131,7 +164,10 @@ private fun GalleryThumbnail(item: GalleryItem) {
     }
 
     Box(
-        modifier = Modifier.padding(2.dp).aspectRatio(1f),
+        modifier = Modifier
+            .padding(2.dp)
+            .aspectRatio(1f)
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         val bmp = bitmap
@@ -139,6 +175,7 @@ private fun GalleryThumbnail(item: GalleryItem) {
             Image(
                 bitmap = bmp.asImageBitmap(),
                 contentDescription = item.name,
+                contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
         } else {
@@ -147,6 +184,52 @@ private fun GalleryThumbnail(item: GalleryItem) {
                 contentDescription = item.name,
                 modifier = Modifier.fillMaxSize().padding(24.dp)
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PhotoDetailScreen(item: GalleryItem, onBack: () -> Unit, onOpenExternal: () -> Unit) {
+    val context = LocalContext.current
+    var bitmap by remember(item.uri) { mutableStateOf<Bitmap?>(null) }
+
+    LaunchedEffect(item.uri) {
+        bitmap = loadThumbnail(context, item.uri)
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(item.name, maxLines = 1) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Volver")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onOpenExternal) {
+                        Icon(Icons.Default.OpenInNew, contentDescription = "Abrir con")
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier.fillMaxSize().padding(innerPadding),
+            contentAlignment = Alignment.Center
+        ) {
+            val bmp = bitmap
+            if (bmp != null) {
+                Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = item.name,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Text("Sin preview disponible para este archivo")
+            }
         }
     }
 }

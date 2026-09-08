@@ -64,6 +64,7 @@ private enum class SettingsTab(val label: String) {
     EXPOSURE("Exposición"),
     FOCUS("Enfoque"),
     INTERVAL("Intervalómetro"),
+    STACKING("Apilado"),
     CALIBRATION("Calibración")
 }
 
@@ -110,9 +111,9 @@ fun CaptureScreen(onOpenGallery: () -> Unit = {}) {
 
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    var calibrationFrameCount by remember { mutableIntStateOf(15) }
-    var calibrationBusy by remember { mutableStateOf(false) }
-    var calibrationStatus by remember { mutableStateOf<String?>(null) }
+    var burstFrameCount by remember { mutableIntStateOf(15) }
+    var burstBusy by remember { mutableStateOf(false) }
+    var burstStatus by remember { mutableStateOf<String?>(null) }
 
     val iso = IsoValues[isoIndex]
     val (shutterLabel, shutterNanos) = ShutterSpeedsNanos[shutterIndex]
@@ -133,19 +134,19 @@ fun CaptureScreen(onOpenGallery: () -> Unit = {}) {
     }
 
     fun captureMaster(frameType: FrameType, label: String) {
-        if (calibrationBusy) return
-        calibrationBusy = true
-        calibrationStatus = "Capturando $label 0/$calibrationFrameCount"
+        if (burstBusy) return
+        burstBusy = true
+        burstStatus = "Capturando $label 0/$burstFrameCount"
         scope.launch {
             try {
-                controller.captureMasterFrame(frameType, calibrationFrameCount) { done, total ->
-                    calibrationStatus = "Capturando $label $done/$total"
+                controller.captureMasterFrame(frameType, burstFrameCount) { done, total ->
+                    burstStatus = "Capturando $label $done/$total"
                 }
-                calibrationStatus = "Master $label guardado ✅ ($calibrationFrameCount frames promediados)"
+                burstStatus = "Master $label guardado ✅ ($burstFrameCount frames promediados)"
             } catch (e: Exception) {
-                calibrationStatus = "Error capturando $label: ${e.message}"
+                burstStatus = "Error capturando $label: ${e.message}"
             } finally {
-                calibrationBusy = false
+                burstBusy = false
             }
         }
     }
@@ -274,11 +275,19 @@ fun CaptureScreen(onOpenGallery: () -> Unit = {}) {
                         onSecondsChange = { intervalSeconds = it }
                     )
 
+                    SettingsTab.STACKING -> StackingTab(
+                        frameCount = burstFrameCount,
+                        onFrameCountChange = { burstFrameCount = it },
+                        busy = burstBusy,
+                        status = burstStatus,
+                        onCaptureStack = { captureMaster(FrameType.STACK, "Stack") }
+                    )
+
                     SettingsTab.CALIBRATION -> CalibrationTab(
-                        frameCount = calibrationFrameCount,
-                        onFrameCountChange = { calibrationFrameCount = it },
-                        busy = calibrationBusy,
-                        status = calibrationStatus,
+                        frameCount = burstFrameCount,
+                        onFrameCountChange = { burstFrameCount = it },
+                        busy = burstBusy,
+                        status = burstStatus,
                         onCaptureDark = { captureMaster(FrameType.DARK, "Dark") },
                         onCaptureFlat = { captureMaster(FrameType.FLAT, "Flat") },
                         onCaptureBias = { captureMaster(FrameType.BIAS, "Bias") }
@@ -386,6 +395,43 @@ private fun IntervalTab(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+@Composable
+private fun StackingTab(
+    frameCount: Int,
+    onFrameCountChange: (Int) -> Unit,
+    busy: Boolean,
+    status: String?,
+    onCaptureStack: () -> Unit
+) {
+    Text(
+        "Apila varias lights consecutivas promediándolas píxel a píxel, para " +
+            "reducir el ruido de la toma final. Sin corrección de barrido todavía: " +
+            "conviene usar exposiciones cortas o pocos frames si hay rotación de campo visible.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
+    Text("Cantidad de lights a apilar: $frameCount", style = MaterialTheme.typography.titleMedium)
+    Slider(
+        value = frameCount.toFloat(),
+        onValueChange = { onFrameCountChange(it.toInt()) },
+        valueRange = 2f..30f,
+        steps = 27,
+        enabled = !busy
+    )
+
+    status?.let {
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+    }
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    OutlinedButton(onClick = onCaptureStack, enabled = !busy, colors = ButtonDefaults.outlinedButtonColors()) {
+        Text("Capturar y apilar $frameCount lights")
     }
 }
 
