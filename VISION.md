@@ -85,6 +85,11 @@ herramientas de análisis y mejora de imagen.
       no mostraba nada.
 - [x] Galería: tocar una foto abre vista completa + "Abrir con" (intent
       externo, útil si el usuario tiene una app que sepa render DNG).
+- [x] Parámetros persistidos (SharedPreferences): ISO, obturación, foco,
+      intervalómetro y cantidad de frames quedan guardados entre sesiones.
+- [x] Feedback visual de captura: el botón parpadea mientras dispara y se
+      pone verde con un check al terminar (rojo si falla). Barra de progreso
+      real en Calibración/Apilado mostrando frames hechos vs. total.
 - [ ] Aplicar la calibración a los lights `(Light-Dark)/(Flat-Bias)` —
       pendiente, es el corazón del módulo de reducción de ruido.
 - [ ] Intervalómetro adaptado a RAW (pendiente de revalidar tras el cambio).

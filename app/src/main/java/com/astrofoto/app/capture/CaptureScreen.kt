@@ -6,6 +6,10 @@ import android.view.TextureView
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,12 +26,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Collections
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -50,6 +57,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -68,11 +76,14 @@ private enum class SettingsTab(val label: String) {
     CALIBRATION("Calibración")
 }
 
+private enum class ShotFeedback { IDLE, CAPTURING, SUCCESS, ERROR }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CaptureScreen(onOpenGallery: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val settingsStore = remember { CaptureSettingsStore(context) }
 
     var hasCameraPermission by remember {
         mutableStateOf(
@@ -99,21 +110,42 @@ fun CaptureScreen(onOpenGallery: () -> Unit = {}) {
     var cameraReady by remember { mutableStateOf(false) }
     var rawSupported by remember { mutableStateOf(true) }
 
-    var isoIndex by remember { mutableIntStateOf(2) } // 200 ISO por defecto
-    var shutterIndex by remember { mutableIntStateOf(12) } // 1" por defecto
+    // Parámetros persistidos: arrancan con el último valor guardado, no con defaults fijos.
+    var isoIndex by remember { mutableIntStateOf(settingsStore.isoIndex) }
+    var shutterIndex by remember { mutableIntStateOf(settingsStore.shutterIndex) }
 
-    var manualFocusEnabled by remember { mutableStateOf(false) }
-    var focusDistance by remember { mutableFloatStateOf(0f) } // 0 = infinito
+    var manualFocusEnabled by remember { mutableStateOf(settingsStore.manualFocusEnabled) }
+    var focusDistance by remember { mutableFloatStateOf(settingsStore.focusDistance) }
 
-    var intervalEnabled by remember { mutableStateOf(false) }
-    var intervalSeconds by remember { mutableIntStateOf(5) }
+    var intervalEnabled by remember { mutableStateOf(settingsStore.intervalEnabled) }
+    var intervalSeconds by remember { mutableIntStateOf(settingsStore.intervalSeconds) }
     var isIntervalRunning by remember { mutableStateOf(false) }
 
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    var burstFrameCount by remember { mutableIntStateOf(15) }
+    var burstFrameCount by remember { mutableIntStateOf(settingsStore.burstFrameCount) }
     var burstBusy by remember { mutableStateOf(false) }
     var burstStatus by remember { mutableStateOf<String?>(null) }
+    var burstProgress by remember { mutableFloatStateOf(0f) }
+
+    var shotFeedback by remember { mutableStateOf(ShotFeedback.IDLE) }
+
+    // Cada cambio se guarda al toque — no se pierde hasta que se vuelva a modificar.
+    LaunchedEffect(isoIndex) { settingsStore.isoIndex = isoIndex }
+    LaunchedEffect(shutterIndex) { settingsStore.shutterIndex = shutterIndex }
+    LaunchedEffect(manualFocusEnabled) { settingsStore.manualFocusEnabled = manualFocusEnabled }
+    LaunchedEffect(focusDistance) { settingsStore.focusDistance = focusDistance }
+    LaunchedEffect(intervalEnabled) { settingsStore.intervalEnabled = intervalEnabled }
+    LaunchedEffect(intervalSeconds) { settingsStore.intervalSeconds = intervalSeconds }
+    LaunchedEffect(burstFrameCount) { settingsStore.burstFrameCount = burstFrameCount }
+
+    // El feedback de "capturado" (o error) vuelve solo al ícono normal después de un momento.
+    LaunchedEffect(shotFeedback) {
+        if (shotFeedback == ShotFeedback.SUCCESS || shotFeedback == ShotFeedback.ERROR) {
+            delay(900)
+            shotFeedback = ShotFeedback.IDLE
+        }
+    }
 
     val iso = IsoValues[isoIndex]
     val (shutterLabel, shutterNanos) = ShutterSpeedsNanos[shutterIndex]
@@ -126,22 +158,32 @@ fun CaptureScreen(onOpenGallery: () -> Unit = {}) {
     DisposableEffectStop(controller)
 
     fun takeShot(frameType: FrameType = FrameType.LIGHT, label: String = "RAW guardado") {
+        shotFeedback = ShotFeedback.CAPTURING
         controller.capturePhoto(
             frameType = frameType,
-            onSaved = { Toast.makeText(context, label, Toast.LENGTH_SHORT).show() },
-            onError = { Toast.makeText(context, "Error: ${it.message}", Toast.LENGTH_SHORT).show() }
+            onSaved = {
+                shotFeedback = ShotFeedback.SUCCESS
+                Toast.makeText(context, label, Toast.LENGTH_SHORT).show()
+            },
+            onError = {
+                shotFeedback = ShotFeedback.ERROR
+                Toast.makeText(context, "Error: ${it.message}", Toast.LENGTH_SHORT).show()
+            }
         )
     }
 
     fun captureMaster(frameType: FrameType, label: String) {
         if (burstBusy) return
         burstBusy = true
+        burstProgress = 0f
         burstStatus = "Capturando $label 0/$burstFrameCount"
         scope.launch {
             try {
                 controller.captureMasterFrame(frameType, burstFrameCount) { done, total ->
                     burstStatus = "Capturando $label $done/$total"
+                    burstProgress = done.toFloat() / total.toFloat()
                 }
+                burstProgress = 1f
                 burstStatus = "Master $label guardado ✅ ($burstFrameCount frames promediados)"
             } catch (e: Exception) {
                 burstStatus = "Error capturando $label: ${e.message}"
@@ -172,6 +214,7 @@ fun CaptureScreen(onOpenGallery: () -> Unit = {}) {
                     ShutterButton(
                         isIntervalMode = intervalEnabled,
                         isRunning = isIntervalRunning,
+                        feedback = shotFeedback,
                         onClick = {
                             if (intervalEnabled) {
                                 isIntervalRunning = !isIntervalRunning
@@ -279,6 +322,7 @@ fun CaptureScreen(onOpenGallery: () -> Unit = {}) {
                         frameCount = burstFrameCount,
                         onFrameCountChange = { burstFrameCount = it },
                         busy = burstBusy,
+                        progress = burstProgress,
                         status = burstStatus,
                         onCaptureStack = { captureMaster(FrameType.STACK, "Stack") }
                     )
@@ -287,6 +331,7 @@ fun CaptureScreen(onOpenGallery: () -> Unit = {}) {
                         frameCount = burstFrameCount,
                         onFrameCountChange = { burstFrameCount = it },
                         busy = burstBusy,
+                        progress = burstProgress,
                         status = burstStatus,
                         onCaptureDark = { captureMaster(FrameType.DARK, "Dark") },
                         onCaptureFlat = { captureMaster(FrameType.FLAT, "Flat") },
@@ -403,6 +448,7 @@ private fun StackingTab(
     frameCount: Int,
     onFrameCountChange: (Int) -> Unit,
     busy: Boolean,
+    progress: Float,
     status: String?,
     onCaptureStack: () -> Unit
 ) {
@@ -423,10 +469,7 @@ private fun StackingTab(
         enabled = !busy
     )
 
-    status?.let {
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-    }
+    BurstProgress(busy = busy, progress = progress, status = status)
 
     Spacer(modifier = Modifier.height(8.dp))
 
@@ -440,6 +483,7 @@ private fun CalibrationTab(
     frameCount: Int,
     onFrameCountChange: (Int) -> Unit,
     busy: Boolean,
+    progress: Float,
     status: String?,
     onCaptureDark: () -> Unit,
     onCaptureFlat: () -> Unit,
@@ -460,10 +504,7 @@ private fun CalibrationTab(
         enabled = !busy
     )
 
-    status?.let {
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-    }
+    BurstProgress(busy = busy, progress = progress, status = status)
 
     Spacer(modifier = Modifier.height(8.dp))
 
@@ -500,11 +541,48 @@ private fun CalibrationCaptureRow(title: String, description: String, enabled: B
 }
 
 @Composable
-private fun ShutterButton(isIntervalMode: Boolean, isRunning: Boolean, onClick: () -> Unit) {
-    val color = if (isIntervalMode && isRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+private fun BurstProgress(busy: Boolean, progress: Float, status: String?) {
+    if (busy) {
+        Spacer(modifier = Modifier.height(8.dp))
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+    status?.let {
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun ShutterButton(
+    isIntervalMode: Boolean,
+    isRunning: Boolean,
+    feedback: ShotFeedback,
+    onClick: () -> Unit
+) {
+    val baseColor = if (isIntervalMode && isRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    val successColor = Color(0xFF2E7D32)
+
+    val (color, icon) = when (feedback) {
+        ShotFeedback.SUCCESS -> successColor to Icons.Default.Check
+        ShotFeedback.ERROR -> MaterialTheme.colorScheme.error to Icons.Default.ErrorOutline
+        else -> baseColor to Icons.Default.CameraAlt
+    }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "shutter-pulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.35f,
+        animationSpec = infiniteRepeatable(animation = tween(350), repeatMode = RepeatMode.Reverse),
+        label = "pulse-alpha"
+    )
+    val displayAlpha = if (feedback == ShotFeedback.CAPTURING) pulseAlpha else 1f
+
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
-            modifier = Modifier.size(72.dp).clip(CircleShape),
+            modifier = Modifier.size(72.dp).clip(CircleShape).alpha(displayAlpha),
             contentAlignment = Alignment.Center
         ) {
             IconButton(
@@ -513,7 +591,7 @@ private fun ShutterButton(isIntervalMode: Boolean, isRunning: Boolean, onClick: 
                 colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = color)
             ) {
                 Icon(
-                    imageVector = Icons.Default.CameraAlt,
+                    imageVector = icon,
                     contentDescription = "Capturar",
                     tint = Color.White,
                     modifier = Modifier.size(32.dp)
@@ -523,6 +601,9 @@ private fun ShutterButton(isIntervalMode: Boolean, isRunning: Boolean, onClick: 
         Spacer(modifier = Modifier.height(6.dp))
         Text(
             when {
+                feedback == ShotFeedback.CAPTURING -> "Capturando…"
+                feedback == ShotFeedback.SUCCESS -> "¡Listo!"
+                feedback == ShotFeedback.ERROR -> "Error"
                 isIntervalMode && isRunning -> "Detener"
                 isIntervalMode -> "Iniciar"
                 else -> "Capturar"
