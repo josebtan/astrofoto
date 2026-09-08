@@ -71,6 +71,12 @@ herramientas de análisis y mejora de imagen.
 - [x] Captura manual (ISO, exposición, foco) con controlador Camera2 directo
       (no CameraX, porque CameraX no expone `RAW_SENSOR`).
 - [x] Guardado en DNG dentro de `Pictures/Astrofoto/RAW/`.
+- [x] Galería en-app (grid MediaStore + thumbnails DNG).
+- [x] UI en tabs (Exposición/Enfoque/Intervalómetro/Calibración).
+- [x] Calibración: captura N frames + promedio píxel a píxel → master DNG
+      (dark/flat/bias). El promedio corre en la propia app, sin libs externas.
+- [ ] Aplicar la calibración a los lights `(Light-Dark)/(Flat-Bias)` —
+      pendiente, es el corazón del módulo de reducción de ruido.
 - [ ] Intervalómetro adaptado a RAW (pendiente de revalidar tras el cambio).
 - [ ] Todo lo demás listado arriba: pendiente, se va marcando acá a medida
       que se implementa.

@@ -110,6 +110,10 @@ fun CaptureScreen(onOpenGallery: () -> Unit = {}) {
 
     var selectedTab by remember { mutableIntStateOf(0) }
 
+    var calibrationFrameCount by remember { mutableIntStateOf(15) }
+    var calibrationBusy by remember { mutableStateOf(false) }
+    var calibrationStatus by remember { mutableStateOf<String?>(null) }
+
     val iso = IsoValues[isoIndex]
     val (shutterLabel, shutterNanos) = ShutterSpeedsNanos[shutterIndex]
     val effectiveFocus = if (manualFocusEnabled) focusDistance else 0f
@@ -126,6 +130,24 @@ fun CaptureScreen(onOpenGallery: () -> Unit = {}) {
             onSaved = { Toast.makeText(context, label, Toast.LENGTH_SHORT).show() },
             onError = { Toast.makeText(context, "Error: ${it.message}", Toast.LENGTH_SHORT).show() }
         )
+    }
+
+    fun captureMaster(frameType: FrameType, label: String) {
+        if (calibrationBusy) return
+        calibrationBusy = true
+        calibrationStatus = "Capturando $label 0/$calibrationFrameCount"
+        scope.launch {
+            try {
+                controller.captureMasterFrame(frameType, calibrationFrameCount) { done, total ->
+                    calibrationStatus = "Capturando $label $done/$total"
+                }
+                calibrationStatus = "Master $label guardado ✅ ($calibrationFrameCount frames promediados)"
+            } catch (e: Exception) {
+                calibrationStatus = "Error capturando $label: ${e.message}"
+            } finally {
+                calibrationBusy = false
+            }
+        }
     }
 
     Scaffold(
@@ -253,9 +275,13 @@ fun CaptureScreen(onOpenGallery: () -> Unit = {}) {
                     )
 
                     SettingsTab.CALIBRATION -> CalibrationTab(
-                        onCaptureDark = { takeShot(FrameType.DARK, "Dark frame guardado") },
-                        onCaptureFlat = { takeShot(FrameType.FLAT, "Flat frame guardado") },
-                        onCaptureBias = { takeShot(FrameType.BIAS, "Bias frame guardado") }
+                        frameCount = calibrationFrameCount,
+                        onFrameCountChange = { calibrationFrameCount = it },
+                        busy = calibrationBusy,
+                        status = calibrationStatus,
+                        onCaptureDark = { captureMaster(FrameType.DARK, "Dark") },
+                        onCaptureFlat = { captureMaster(FrameType.FLAT, "Flat") },
+                        onCaptureBias = { captureMaster(FrameType.BIAS, "Bias") }
                     )
                 }
             }
@@ -365,6 +391,10 @@ private fun IntervalTab(
 
 @Composable
 private fun CalibrationTab(
+    frameCount: Int,
+    onFrameCountChange: (Int) -> Unit,
+    busy: Boolean,
+    status: String?,
     onCaptureDark: () -> Unit,
     onCaptureFlat: () -> Unit,
     onCaptureBias: () -> Unit
@@ -375,31 +405,50 @@ private fun CalibrationTab(
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
 
+    Text("Cantidad de frames a promediar: $frameCount", style = MaterialTheme.typography.titleMedium)
+    Slider(
+        value = frameCount.toFloat(),
+        onValueChange = { onFrameCountChange(it.toInt()) },
+        valueRange = 3f..30f,
+        steps = 26,
+        enabled = !busy
+    )
+
+    status?.let {
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+    }
+
+    Spacer(modifier = Modifier.height(8.dp))
+
     CalibrationCaptureRow(
         title = "Dark",
         description = "Tapá el lente. Usa el mismo ISO y exposición que tus lights.",
+        enabled = !busy,
         onClick = onCaptureDark
     )
     CalibrationCaptureRow(
         title = "Flat",
         description = "Apuntá a una superficie uniforme (cielo al amanecer o panel de luz).",
+        enabled = !busy,
         onClick = onCaptureFlat
     )
     CalibrationCaptureRow(
         title = "Bias",
         description = "Tapá el lente con la exposición más corta posible.",
+        enabled = !busy,
         onClick = onCaptureBias
     )
 }
 
 @Composable
-private fun CalibrationCaptureRow(title: String, description: String, onClick: () -> Unit) {
+private fun CalibrationCaptureRow(title: String, description: String, enabled: Boolean, onClick: () -> Unit) {
     Column {
         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(modifier = Modifier.height(6.dp))
-        OutlinedButton(onClick = onClick, colors = ButtonDefaults.outlinedButtonColors()) {
-            Text("Capturar $title")
+        OutlinedButton(onClick = onClick, enabled = enabled, colors = ButtonDefaults.outlinedButtonColors()) {
+            Text("Capturar master $title")
         }
     }
 }

@@ -27,6 +27,12 @@ import java.util.Locale
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import android.media.ImageReader
+import android.util.Size
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import kotlinx.coroutines.resume
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resumeWithException
 
 /**
  * Cámara en modo manual vía Camera2 directo (no CameraX): CameraX no expone
@@ -304,6 +310,159 @@ class CaptureController(private val context: Context) {
             pendingResult = null
             onError(e)
         }
+    }
+
+    /**
+     * Captura un único frame RAW y devuelve su Image + metadata, esperando
+     * a que ambos estén listos. Usado como building block para el promedio
+     * de frames de calibración (master dark/flat/bias).
+     */
+    private suspend fun captureSingleRaw(): Pair<Image, TotalCaptureResult> =
+        suspendCancellableCoroutine { cont ->
+            val device = cameraDevice
+            val session = captureSession
+            val reader = rawImageReader
+            val builder = repeatingBuilder
+
+            if (device == null || session == null || reader == null || builder == null || !isRawSupported) {
+                cont.resumeWithException(IllegalStateException("Captura RAW no disponible en esta cámara"))
+                return@suspendCancellableCoroutine
+            }
+
+            var capturedImage: Image? = null
+            var capturedResult: TotalCaptureResult? = null
+
+            fun tryComplete() {
+                val img = capturedImage
+                val res = capturedResult
+                if (img != null && res != null && cont.isActive) {
+                    cont.resume(img to res)
+                }
+            }
+
+            reader.setOnImageAvailableListener({ r ->
+                val image = r.acquireLatestImage() ?: return@setOnImageAvailableListener
+                capturedImage = image
+                tryComplete()
+            }, backgroundHandler)
+
+            try {
+                val captureBuilder = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                    addTarget(reader.surface)
+                    set(CaptureRequest.CONTROL_MODE, builder.get(CaptureRequest.CONTROL_MODE))
+                    set(CaptureRequest.CONTROL_AE_MODE, builder.get(CaptureRequest.CONTROL_AE_MODE))
+                    set(CaptureRequest.SENSOR_SENSITIVITY, builder.get(CaptureRequest.SENSOR_SENSITIVITY))
+                    set(CaptureRequest.SENSOR_EXPOSURE_TIME, builder.get(CaptureRequest.SENSOR_EXPOSURE_TIME))
+                    set(CaptureRequest.CONTROL_AF_MODE, builder.get(CaptureRequest.CONTROL_AF_MODE))
+                    set(CaptureRequest.LENS_FOCUS_DISTANCE, builder.get(CaptureRequest.LENS_FOCUS_DISTANCE))
+                }
+
+                session.capture(
+                    captureBuilder.build(),
+                    object : CameraCaptureSession.CaptureCallback() {
+                        override fun onCaptureCompleted(
+                            session: CameraCaptureSession,
+                            request: CaptureRequest,
+                            result: TotalCaptureResult
+                        ) {
+                            capturedResult = result
+                            tryComplete()
+                        }
+
+                        override fun onCaptureFailed(
+                            session: CameraCaptureSession,
+                            request: CaptureRequest,
+                            failure: CaptureFailure
+                        ) {
+                            if (cont.isActive) {
+                                cont.resumeWithException(IllegalStateException("Falló la captura (código ${failure.reason})"))
+                            }
+                        }
+                    },
+                    backgroundHandler
+                )
+            } catch (e: Exception) {
+                if (cont.isActive) cont.resumeWithException(e)
+            }
+        }
+
+    /**
+     * Captura [frameCount] frames RAW consecutivos y los promedia píxel a
+     * píxel, guardando el resultado como un "master" DNG (master dark, flat
+     * o bias). El promedio reduce el ruido propio de los frames de
+     * calibración, algo estándar en flujos de astrofotografía real.
+     */
+    suspend fun captureMasterFrame(
+        frameType: FrameType,
+        frameCount: Int,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }
+    ): Uri {
+        require(frameCount >= 1) { "frameCount debe ser al menos 1" }
+
+        var accumulator: IntArray? = null
+        var width = 0
+        var height = 0
+        var lastResult: TotalCaptureResult? = null
+
+        repeat(frameCount) { index ->
+            val (image, result) = captureSingleRaw()
+            lastResult = result
+            width = image.width
+            height = image.height
+
+            val plane = image.planes[0]
+            val buffer = plane.buffer
+            val rowStride = plane.rowStride
+            val pixelStride = plane.pixelStride
+
+            val acc = accumulator ?: IntArray(width * height).also { accumulator = it }
+            val rowBytes = ByteArray(rowStride)
+
+            for (row in 0 until height) {
+                buffer.position(row * rowStride)
+                buffer.get(rowBytes, 0, rowStride)
+                for (col in 0 until width) {
+                    val idx = col * pixelStride
+                    val lo = rowBytes[idx].toInt() and 0xFF
+                    val hi = rowBytes[idx + 1].toInt() and 0xFF
+                    acc[row * width + col] += (hi shl 8) or lo
+                }
+            }
+
+            image.close()
+            onProgress(index + 1, frameCount)
+        }
+
+        val acc = accumulator ?: throw IllegalStateException("No se capturó ningún frame")
+        val result = lastResult ?: throw IllegalStateException("Sin metadata de captura")
+        val chars = characteristics ?: throw IllegalStateException("Sin características de cámara")
+
+        val packed = ByteBuffer.allocateDirect(width * height * 2).order(ByteOrder.LITTLE_ENDIAN)
+        for (v in acc) {
+            packed.putShort((v / frameCount).toShort())
+        }
+        packed.rewind()
+
+        val name = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
+        val contentValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "MASTER_${frameType.prefix}_$name.dng")
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/x-adobe-dng")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Astrofoto/${frameType.folder}")
+            }
+        }
+
+        val resolver = context.contentResolver
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+            ?: throw IllegalStateException("No se pudo crear el archivo de salida")
+
+        resolver.openOutputStream(uri)?.use { out ->
+            DngCreator(chars, result).use { dngCreator ->
+                dngCreator.writeByteBuffer(out, Size(width, height), packed, 0)
+            }
+        } ?: throw IllegalStateException("No se pudo abrir el archivo de salida")
+
+        return uri
     }
 
     fun stopCamera() {
