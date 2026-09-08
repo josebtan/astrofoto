@@ -30,9 +30,7 @@ import android.media.ImageReader
 import android.util.Size
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import kotlinx.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resumeWithException
 
 /**
  * Cámara en modo manual vía Camera2 directo (no CameraX): CameraX no expone
@@ -325,7 +323,7 @@ class CaptureController(private val context: Context) {
             val builder = repeatingBuilder
 
             if (device == null || session == null || reader == null || builder == null || !isRawSupported) {
-                cont.resumeWithException(IllegalStateException("Captura RAW no disponible en esta cámara"))
+                cont.resumeWith(Result.failure(IllegalStateException("Captura RAW no disponible en esta cámara")))
                 return@suspendCancellableCoroutine
             }
 
@@ -336,7 +334,7 @@ class CaptureController(private val context: Context) {
                 val img = capturedImage
                 val res = capturedResult
                 if (img != null && res != null && cont.isActive) {
-                    cont.resume(img to res)
+                    cont.resumeWith(Result.success(img to res))
                 }
             }
 
@@ -375,14 +373,14 @@ class CaptureController(private val context: Context) {
                             failure: CaptureFailure
                         ) {
                             if (cont.isActive) {
-                                cont.resumeWithException(IllegalStateException("Falló la captura (código ${failure.reason})"))
+                                cont.resumeWith(Result.failure(IllegalStateException("Falló la captura (código ${failure.reason})")))
                             }
                         }
                     },
                     backgroundHandler
                 )
             } catch (e: Exception) {
-                if (cont.isActive) cont.resumeWithException(e)
+                if (cont.isActive) cont.resumeWith(Result.failure(e))
             }
         }
 
