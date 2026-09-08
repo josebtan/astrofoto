@@ -64,8 +64,13 @@ class CaptureController(private val context: Context) {
     var isRawSupported: Boolean = false
         private set
 
-    /** Bitmap del preview en vivo al momento de disparar, usado como thumbnail embebido del DNG. */
-    private fun capturePreviewBitmap(maxDimension: Int = 1024): Bitmap? {
+    /**
+     * Bitmap del preview en vivo, usado como thumbnail embebido del DNG.
+     * IMPORTANTE: debe llamarse desde el hilo principal (UI), nunca desde el
+     * hilo de background de la cámara — TextureView.getBitmap() puede
+     * colgarse indefinidamente si se llama fuera del hilo de UI.
+     */
+    fun capturePreviewBitmap(maxDimension: Int = 1024): Bitmap? {
         return try {
             val source = previewTextureView?.bitmap ?: return null
             val w = source.width
@@ -239,6 +244,7 @@ class CaptureController(private val context: Context) {
 
     fun capturePhoto(
         frameType: FrameType = FrameType.LIGHT,
+        thumbnail: Bitmap? = null,
         onSaved: (Uri) -> Unit,
         onError: (Exception) -> Unit
     ) {
@@ -264,9 +270,13 @@ class CaptureController(private val context: Context) {
             }
 
             reader.setOnImageAvailableListener({ r ->
-                val image = r.acquireLatestImage() ?: return@setOnImageAvailableListener
-                pendingImage = image
-                maybeWriteDng(frameType, onSaved, onError)
+                try {
+                    val image = r.acquireLatestImage() ?: return@setOnImageAvailableListener
+                    pendingImage = image
+                    maybeWriteDng(frameType, thumbnail, onSaved, onError)
+                } catch (e: Exception) {
+                    onError(e)
+                }
             }, backgroundHandler)
 
             session.capture(
@@ -278,7 +288,7 @@ class CaptureController(private val context: Context) {
                         result: TotalCaptureResult
                     ) {
                         pendingResult = result
-                        maybeWriteDng(frameType, onSaved, onError)
+                        maybeWriteDng(frameType, thumbnail, onSaved, onError)
                     }
 
                     override fun onCaptureFailed(
@@ -296,14 +306,14 @@ class CaptureController(private val context: Context) {
         }
     }
 
-    private fun maybeWriteDng(frameType: FrameType, onSaved: (Uri) -> Unit, onError: (Exception) -> Unit) {
+    private fun maybeWriteDng(frameType: FrameType, thumbnail: Bitmap?, onSaved: (Uri) -> Unit, onError: (Exception) -> Unit) {
         val image = pendingImage ?: return
         val result = pendingResult ?: return
         val chars = characteristics ?: return
 
         try {
             val dngCreator = DngCreator(chars, result)
-            capturePreviewBitmap()?.let { thumb ->
+            thumbnail?.let { thumb ->
                 try {
                     dngCreator.setThumbnail(thumb)
                 } catch (e: Exception) {
@@ -422,6 +432,7 @@ class CaptureController(private val context: Context) {
     suspend fun captureMasterFrame(
         frameType: FrameType,
         frameCount: Int,
+        thumbnail: Bitmap? = null,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }
     ): Uri {
         require(frameCount >= 1) { "frameCount debe ser al menos 1" }
@@ -485,7 +496,7 @@ class CaptureController(private val context: Context) {
 
         resolver.openOutputStream(uri)?.use { out ->
             DngCreator(chars, result).use { dngCreator ->
-                capturePreviewBitmap()?.let { thumb ->
+                thumbnail?.let { thumb ->
                     try {
                         dngCreator.setThumbnail(thumb)
                     } catch (e: Exception) {

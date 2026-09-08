@@ -148,6 +148,18 @@ fun CaptureScreen(onOpenGallery: () -> Unit = {}) {
         }
     }
 
+    // Red de seguridad: la exposición más larga soportada es 30s. Si a los 40s
+    // seguimos "capturando", algo falló silenciosamente — no dejar el botón colgado.
+    LaunchedEffect(shotFeedback) {
+        if (shotFeedback == ShotFeedback.CAPTURING) {
+            delay(40_000)
+            if (shotFeedback == ShotFeedback.CAPTURING) {
+                shotFeedback = ShotFeedback.ERROR
+                Toast.makeText(context, "La captura tardó demasiado, se canceló", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     val iso = IsoValues[isoIndex]
     val (shutterLabel, shutterNanos) = ShutterSpeedsNanos[shutterIndex]
     val effectiveFocus = if (manualFocusEnabled) focusDistance else 0f
@@ -160,8 +172,10 @@ fun CaptureScreen(onOpenGallery: () -> Unit = {}) {
 
     fun takeShot(frameType: FrameType = FrameType.LIGHT, label: String = "RAW guardado") {
         shotFeedback = ShotFeedback.CAPTURING
+        val thumbnail = controller.capturePreviewBitmap() // se lee en el hilo principal, antes de la captura
         controller.capturePhoto(
             frameType = frameType,
+            thumbnail = thumbnail,
             onSaved = {
                 shotFeedback = ShotFeedback.SUCCESS
                 Toast.makeText(context, label, Toast.LENGTH_SHORT).show()
@@ -178,9 +192,10 @@ fun CaptureScreen(onOpenGallery: () -> Unit = {}) {
         burstBusy = true
         burstProgress = 0f
         burstStatus = "Capturando $label 0/$burstFrameCount"
+        val thumbnail = controller.capturePreviewBitmap()
         scope.launch {
             try {
-                controller.captureMasterFrame(frameType, burstFrameCount) { done, total ->
+                controller.captureMasterFrame(frameType, burstFrameCount, thumbnail) { done, total ->
                     burstStatus = "Capturando $label $done/$total"
                     burstProgress = done.toFloat() / total.toFloat()
                 }
